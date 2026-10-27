@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
@@ -17,10 +19,7 @@ SYSTEM_INSTRUCTION = """
 Отвечай четко, структурированно, без лишней «воды». Используй списки и форматирование.
 """
 
-# Инициализация нового клиента Google GenAI
 client = genai.Client(api_key=GEMINI_API_KEY)
-
-# Словарь для хранения истории чатов
 user_chats = {}
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -32,7 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
     )
     await update.message.reply_text(
-        "👋 Привет! Я твой Gemini-агент с поддержкой памяти.\n\n"
+        "👋 Привет! Я твой Gemini-агент для рутины, запущенный на сервере Render!\n\n"
         "Отправь мне задачу, список дел или просто задай вопрос!"
     )
 
@@ -56,11 +55,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logging.error(f"Ошибка при запросе к Gemini: {e}")
         await update.message.reply_text("Извини, произошла ошибка при обработке запроса. Попробуй еще раз.")
 
+# Функция для обмана Render: создает фейковый веб-сайт, который слушает порт хостинга
+def run_fake_web_server():
+    port = int(os.getenv("PORT", 10000))
+    server_address = ("", port)
+    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    print(f"Фейковый веб-сервер успешно запущен на порту {port}")
+    httpd.serve_forever()
+
 def main() -> None:
+    # Запускаем веб-сервер в отдельном фоновом потоке, чтобы он не мешал боту
+    web_thread = threading.Thread(target=run_fake_web_server, daemon=True)
+    web_thread.start()
+
+    # Запускаем Telegram бота
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Бот успешно запущен на стабильном API и готов к работе!")
+    print("Бот успешно запущен в связке с веб-портом и готов к работе!")
     application.run_polling()
 
 if __name__ == "__main__":
